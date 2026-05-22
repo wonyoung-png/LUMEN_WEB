@@ -1,0 +1,561 @@
+{% comment %}
+  LUMEN Country Selector — JS
+  snippets/lumen-country-selector-js.liquid
+
+  삽입 위치: layout/theme.liquid  </body> 직전
+  {% render 'lumen-country-selector-js' %}
+{% endcomment %}
+
+<script>
+(function () {
+  'use strict';
+  if (window.__lumenSelectorLoaded) return;
+  window.__lumenSelectorLoaded = true;
+
+  // ─────────────────────────────────────────────
+  // Liquid → JS 컨텍스트 주입
+  // ─────────────────────────────────────────────
+  var LUMEN_CTX = {
+    shopCountry:  {{ localization.country.iso_code | json }},
+    shopCurrency: {{ localization.country.currency.iso_code | json }},
+    shopCurrencySym: {{ localization.country.currency.symbol | json }}
+  };
+
+  // ─────────────────────────────────────────────
+  // 상수
+  // ─────────────────────────────────────────────
+  var INTL_URL  = 'https://intl.atlm.kr';
+  var KR_URL    = 'https://atlm.kr';
+  var CACHE_KEY = 'lumen_locale_pref';
+  var CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
+
+  // ─────────────────────────────────────────────
+  // localStorage 헬퍼
+  // ─────────────────────────────────────────────
+  function loadCache() {
+    try {
+      var raw = localStorage.getItem(CACHE_KEY);
+      if (!raw) return null;
+      var obj = JSON.parse(raw);
+      if (Date.now() - obj.ts > CACHE_TTL) { localStorage.removeItem(CACHE_KEY); return null; }
+      return obj;
+    } catch (e) { return null; }
+  }
+
+  function saveCache(countryCode, currencyCode) {
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify({
+        countryCode: countryCode,
+        currencyCode: currencyCode,
+        ts: Date.now()
+      }));
+    } catch (e) {}
+  }
+
+  // ─────────────────────────────────────────────
+  // URL ?country= 파라미터 처리
+  // Cafe24에서 넘어온 경우 캐시 갱신 후 파라미터 제거 (clean URL)
+  // ─────────────────────────────────────────────
+  function processUrlParam() {
+    var params = new URLSearchParams(window.location.search);
+    var urlCountry = params.get('country');
+    if (!urlCountry) return null;
+    // clean URL — 파라미터 제거
+    params.delete('country');
+    var cleanUrl = window.location.pathname +
+      (params.toString() ? '?' + params.toString() : '') +
+      window.location.hash;
+    window.history.replaceState({}, '', cleanUrl);
+    return urlCountry.toUpperCase();
+  }
+
+  function shouldShowModal(urlCountry) {
+
+    // ── Case 1: URL 파라미터로 직접 진입 ──
+    // Shopify가 이미 올바른 Market으로 렌더링 완료된 상태
+    // 캐시만 저장하고 모달 없이 통과
+    if (urlCountry) {
+      var cur = COUNTRY_CURRENCY[urlCountry] || 'USD';
+      saveCache(urlCountry, cur);
+      // BUCKS가 초기화된 후 트리거 — DOM 로드 완료 후 딜레이
+      function triggerWhenReady(code, attempts) {
+        attempts = attempts || 0;
+        var li = document.querySelector('.buckscc-select-options li[id="' + code + '"]')
+              || document.querySelector('.buckscc-select-options li[rel="' + code + '"]');
+        if (li) {
+          li.click();
+        } else if (attempts < 20) {
+          setTimeout(function() { triggerWhenReady(code, attempts + 1); }, 200);
+        }
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function() {
+          setTimeout(function() { triggerWhenReady(cur); }, 300);
+        });
+      } else {
+        setTimeout(function() { triggerWhenReady(cur); }, 300);
+      }
+      return false;
+    }
+
+    // ── Case 2: 캐시 없음 → 모달 노출 ──
+    var cached = loadCache();
+    if (!cached) return true;
+
+    // ── Case 3: KR 캐시 → atlm.kr 이동 ──
+    if (cached.countryCode === 'KR') {
+      return true;
+    }
+
+    // ── Case 4: 모든 해외 캐시 (JP 포함) ──
+    // JP: ?country=JP로 이미 진입했다면 Case 1에서 처리됨
+    //     직접 접속이면 BUCKS로 JPY 적용 후 모달 스킵
+    // 그 외: BUCKS로 해당 통화 적용 후 모달 스킵
+    triggerBucksCurrency(cached.currencyCode || 'USD');
+    return false;
+  }
+
+  // ─────────────────────────────────────────────
+  // BUCKS 통화 전환 트리거
+  // ─────────────────────────────────────────────
+  // BUCKS가 렌더링한 Markets 토글 UI 강제 숨김
+  // (임베드는 켜두되 UI만 숨김 — 통화 변환 기능은 유지)
+  function hideBucksUI() {
+    var style = document.getElementById('lumen-bucks-hide');
+    if (style) return;
+    var s = document.createElement('style');
+    s.id = 'lumen-bucks-hide';
+    s.textContent = [
+      '.buckscc-currency-box',
+      '.buckscc-popup',
+      '.buckscc-modal',
+      '.buckscc-overlay',
+      '[class*="buckscc-widget"]',
+      '[class*="buckscc-container"]',
+      '[id*="bucksModal"]',
+      '[id*="bucksPopup"]'
+    ].join(',') + '{ display:none !important; visibility:hidden !important; pointer-events:none !important; }';
+    document.head.appendChild(s);
+  }
+
+  function triggerBucksCurrency(code) {
+    // BUCKS는 <li class="converterTriggers" id="{CODE}"> 클릭으로 작동
+    // select change 이벤트나 JS API는 Markets 환경에서 무효
+    var li = document.querySelector('.buckscc-select-options li[id="' + code + '"]')
+          || document.querySelector('.buckscc-select-options li[rel="' + code + '"]');
+    if (li) {
+      li.click();
+      return;
+    }
+    // fallback: li가 없으면 (BUCKS에 해당 통화가 미등록) USD로
+    var usdLi = document.querySelector('.buckscc-select-options li[id="USD"]');
+    if (usdLi) usdLi.click();
+  }
+
+  // ─────────────────────────────────────────────
+  // 데이터
+  // ─────────────────────────────────────────────
+  var COUNTRIES = [
+    ['AC','Ascension Island'],['AD','Andorra'],['AE','United Arab Emirates'],
+    ['AG','Antigua & Barbuda'],['AI','Anguilla'],['AL','Albania'],['AM','Armenia'],
+    ['AN','Netherlands Antilles'],['AO','Angola'],['AR','Argentina'],['AT','Austria'],
+    ['AU','Australia'],['AW','Aruba'],['AX','\u00c5land Islands'],['AZ','Azerbaijan'],
+    ['BA','Bosnia & Herzegovina'],['BB','Barbados'],['BD','Bangladesh'],['BE','Belgium'],
+    ['BF','Burkina Faso'],['BG','Bulgaria'],['BH','Bahrain'],['BI','Burundi'],
+    ['BJ','Benin'],['BL','St. Barth\u00e9lemy'],['BM','Bermuda'],['BN','Brunei'],
+    ['BO','Bolivia'],['BQ','Caribbean Netherlands'],['BR','Brazil'],['BS','Bahamas'],
+    ['BT','Bhutan'],['BV','Bouvet Island'],['BW','Botswana'],
+    ['BZ','Belize'],['CA','Canada'],['CC','Cocos (Keeling) Islands'],
+    ['CD','Congo - Kinshasa'],['CG','Congo - Brazzaville'],['CH','Switzerland'],
+    ['CI','C\u00f4te d\'Ivoire'],['CK','Cook Islands'],['CL','Chile'],['CM','Cameroon'],
+    ['CN','China'],['CO','Colombia'],['CR','Costa Rica'],['CU','Cuba'],
+    ['CV','Cape Verde'],['CW','Cura\u00e7ao'],['CX','Christmas Island'],['CY','Cyprus'],
+    ['CZ','Czechia'],['DE','Germany'],['DJ','Djibouti'],['DK','Denmark'],
+    ['DM','Dominica'],['DO','Dominican Republic'],['DZ','Algeria'],['EC','Ecuador'],
+    ['EE','Estonia'],['EG','Egypt'],['EH','Western Sahara'],['ER','Eritrea'],
+    ['ES','Spain'],['ET','Ethiopia'],['FI','Finland'],['FJ','Fiji'],
+    ['FO','Faroe Islands'],['FR','France'],['GA','Gabon'],['GB','United Kingdom'],
+    ['GD','Grenada'],['GE','Georgia'],['GF','French Guiana'],['GG','Guernsey'],
+    ['GH','Ghana'],['GI','Gibraltar'],['GL','Greenland'],['GM','Gambia'],
+    ['GN','Guinea'],['GP','Guadeloupe'],['GR','Greece'],
+    ['GS','South Georgia & South Sandwich Islands'],['GT','Guatemala'],
+    ['GY','Guyana'],['HK','Hong Kong SAR'],['HM','Heard & McDonald Islands'],
+    ['HN','Honduras'],['HR','Croatia'],['HT','Haiti'],['HU','Hungary'],
+    ['ID','Indonesia'],['IE','Ireland'],['IL','Israel'],['IM','Isle of Man'],
+    ['IN','India'],['IO','British Indian Ocean Territory'],['IQ','Iraq'],
+    ['IR','Iran'],['IS','Iceland'],['IT','Italy'],['JE','Jersey'],['JM','Jamaica'],
+    ['JO','Jordan'],['JP','Japan'],['KE','Kenya'],['KG','Kyrgyzstan'],['KH','Cambodia'],
+    ['KN','St. Kitts & Nevis'],['KP','North Korea'],['KR','South Korea'],
+    ['KW','Kuwait'],['KY','Cayman Islands'],['KZ','Kazakhstan'],['LA','Laos'],
+    ['LB','Lebanon'],['LC','St. Lucia'],['LI','Liechtenstein'],['LK','Sri Lanka'],
+    ['LR','Liberia'],['LS','Lesotho'],['LT','Lithuania'],['LU','Luxembourg'],
+    ['LV','Latvia'],['MA','Morocco'],['MC','Monaco'],['MD','Moldova'],
+    ['ME','Montenegro'],['MF','St. Martin'],['MG','Madagascar'],['MK','North Macedonia'],
+    ['ML','Mali'],['MN','Mongolia'],['MO','Macao SAR'],['MQ','Martinique'],
+    ['MR','Mauritania'],['MS','Montserrat'],['MT','Malta'],['MU','Mauritius'],
+    ['MV','Maldives'],['MW','Malawi'],['MX','Mexico'],['MY','Malaysia'],
+    ['MZ','Mozambique'],['NA','Namibia'],['NC','New Caledonia'],['NE','Niger'],
+    ['NF','Norfolk Island'],['NG','Nigeria'],['NI','Nicaragua'],['NL','Netherlands'],
+    ['NO','Norway'],['NP','Nepal'],['NR','Nauru'],['NU','Niue'],['NZ','New Zealand'],
+    ['OM','Oman'],['PA','Panama'],['PE','Peru'],['PF','French Polynesia'],
+    ['PG','Papua New Guinea'],['PH','Philippines'],['PK','Pakistan'],['PL','Poland'],
+    ['PN','Pitcairn Islands'],['PS','Palestinian Territories'],['PT','Portugal'],
+    ['PY','Paraguay'],['QA','Qatar'],['RE','R\u00e9union'],['RO','Romania'],
+    ['RS','Serbia'],['RW','Rwanda'],['SA','Saudi Arabia'],['SB','Solomon Islands'],
+    ['SC','Seychelles'],['SE','Sweden'],['SG','Singapore'],['SI','Slovenia'],
+    ['SJ','Svalbard & Jan Mayen'],['SK','Slovakia'],['SL','Sierra Leone'],
+    ['SM','San Marino'],['SN','Senegal'],['SR','Suriname'],['SV','El Salvador'],
+    ['SX','Sint Maarten'],['SY','Syria'],['SZ','Eswatini'],['TA','Tristan da Cunha'],
+    ['TC','Turks & Caicos Islands'],['TD','Chad'],['TF','French Southern Territories'],
+    ['TG','Togo'],['TH','Thailand'],['TJ','Tajikistan'],['TL','Timor-Leste'],
+    ['TM','Turkmenistan'],['TN','Tunisia'],['TO','Tonga'],['TR','T\u00fcrkiye'],
+    ['TT','Trinidad & Tobago'],['TV','Tuvalu'],['TW','Taiwan'],['TZ','Tanzania'],
+    ['UG','Uganda'],['UM','U.S. Outlying Islands'],['US','United States'],
+    ['UY','Uruguay'],['UZ','Uzbekistan'],['VA','Vatican City'],
+    ['VC','St. Vincent & Grenadines'],['VE','Venezuela'],['VG','British Virgin Islands'],
+    ['VN','Vietnam'],['VU','Vanuatu'],['WF','Wallis & Futuna'],['WS','Samoa'],
+    ['XK','Kosovo'],['YT','Mayotte'],['ZA','South Africa'],['ZM','Zambia'],
+    ['ZW','Zimbabwe'],['ZZ','Unknown Region']
+  ];
+
+  var COUNTRY_CURRENCY = {
+    AC:'SHP',AD:'EUR',AE:'AED',AG:'XCD',AI:'XCD',AL:'ALL',AM:'AMD',AN:'ANG',
+    AO:'AOA',AR:'ARS',AT:'EUR',AU:'AUD',AW:'AWG',AX:'EUR',AZ:'AZN',
+    BA:'BAM',BB:'BBD',BD:'BDT',BE:'EUR',BF:'XOF',BG:'BGN',BH:'BHD',BI:'BIF',
+    BJ:'XOF',BL:'EUR',BM:'BMD',BN:'BND',BO:'BOB',BQ:'USD',BR:'BRL',BS:'BSD',
+    BT:'BTN',BV:'NOK',BW:'BWP',BZ:'BZD',CA:'CAD',CC:'AUD',CD:'CDF',CG:'XAF',
+    CH:'CHF',CI:'XOF',CK:'NZD',CL:'CLP',CM:'XAF',CN:'CNY',CO:'COP',CR:'CRC',
+    CU:'CUP',CV:'CVE',CW:'ANG',CX:'AUD',CY:'EUR',CZ:'CZK',DE:'EUR',DJ:'DJF',
+    DK:'DKK',DM:'XCD',DO:'DOP',DZ:'DZD',EC:'USD',EE:'EUR',EG:'EGP',EH:'MAD',
+    ER:'ERN',ES:'EUR',ET:'ETB',FI:'EUR',FJ:'FJD',FO:'DKK',FR:'EUR',GA:'XAF',
+    GB:'GBP',GD:'XCD',GE:'GEL',GF:'EUR',GG:'GBP',GH:'GHS',GI:'GIP',GL:'DKK',
+    GM:'GMD',GN:'GNF',GP:'EUR',GR:'EUR',GS:'GBP',GT:'GTQ',GY:'GYD',
+    HK:'HKD',HM:'AUD',HN:'HNL',HR:'EUR',HT:'HTG',HU:'HUF',ID:'IDR',IE:'EUR',
+    IL:'ILS',IM:'GBP',IN:'INR',IO:'USD',IQ:'IQD',IR:'IRR',IS:'ISK',IT:'EUR',
+    JE:'GBP',JM:'JMD',JO:'JOD',JP:'JPY',KE:'KES',KG:'KGS',KH:'KHR',
+    KN:'XCD',KP:'KPW',KR:'KRW',KW:'KWD',KY:'KYD',KZ:'KZT',LA:'LAK',
+    LB:'LBP',LC:'XCD',LI:'CHF',LK:'LKR',LR:'LRD',LS:'LSL',LT:'EUR',LU:'EUR',
+    LV:'EUR',MA:'MAD',MC:'EUR',MD:'MDL',ME:'EUR',MF:'EUR',MG:'MGA',MK:'MKD',
+    ML:'XOF',MN:'MNT',MO:'MOP',MQ:'EUR',MR:'MRU',MS:'XCD',MT:'EUR',MU:'MUR',
+    MV:'MVR',MW:'MWK',MX:'MXN',MY:'MYR',MZ:'MZN',NA:'NAD',NC:'XPF',NE:'XOF',
+    NF:'AUD',NG:'NGN',NI:'NIO',NL:'EUR',NO:'NOK',NP:'NPR',NR:'AUD',NU:'NZD',
+    NZ:'NZD',OM:'OMR',PA:'PAB',PE:'PEN',PG:'PGK',PH:'PHP',PK:'PKR',PL:'PLN',
+    PN:'NZD',PS:'ILS',PT:'EUR',PY:'PYG',QA:'QAR',RE:'EUR',RO:'RON',RS:'RSD',
+    RW:'RWF',SA:'SAR',SB:'SBD',SC:'SCR',SE:'SEK',SG:'SGD',SI:'EUR',SJ:'NOK',
+    SK:'EUR',SL:'SLL',SM:'EUR',SN:'XOF',SR:'SRD',SV:'USD',SX:'ANG',SY:'SYP',
+    SZ:'SZL',TA:'SHP',TC:'USD',TD:'XAF',TF:'EUR',TG:'XOF',TH:'THB',TJ:'TJS',
+    TL:'USD',TM:'TMT',TN:'TND',TO:'TOP',TR:'TRY',TT:'TTD',TV:'AUD',TW:'TWD',
+    TZ:'TZS',UG:'UGX',UM:'USD',US:'USD',UY:'UYU',UZ:'UZS',VA:'EUR',VC:'XCD',
+    VE:'VES',VG:'USD',VN:'VND',VU:'VUV',WF:'XPF',WS:'WST',XK:'EUR',YT:'EUR',
+    ZA:'ZAR',ZM:'ZMW',ZW:'ZWL',ZZ:'USD'
+  };
+
+  var CURRENCIES = [
+    ['AED','UAE Dirham','\u062f.\u0625'],['ALL','Albanian Lek','L'],['AMD','Armenian Dram','\u058f'],
+    ['ANG','Netherlands Antillean Guilder','\u0192'],['AOA','Angolan Kwanza','Kz'],
+    ['ARS','Argentine Peso','$'],['AUD','Australian Dollar','A$'],['AWG','Aruban Florin','\u0192'],
+    ['AZN','Azerbaijani Manat','\u20bc'],['BAM','Bosnia-Herzegovina Mark','KM'],
+    ['BBD','Barbadian Dollar','$'],['BDT','Bangladeshi Taka','\u09f3'],['BGN','Bulgarian Lev','\u043b\u0432'],
+    ['BHD','Bahraini Dinar','BD'],['BIF','Burundian Franc','Fr'],['BMD','Bermudian Dollar','$'],
+    ['BND','Brunei Dollar','$'],['BOB','Bolivian Boliviano','Bs.'],['BRL','Brazilian Real','R$'],
+    ['BSD','Bahamian Dollar','$'],['BTN','Bhutanese Ngultrum','Nu'],['BWP','Botswanan Pula','P'],
+    ['BZD','Belize Dollar','BZ$'],['CAD','Canadian Dollar','CA$'],['CDF','Congolese Franc','Fr'],
+    ['CHF','Swiss Franc','Fr'],['CLP','Chilean Peso','$'],['CNY','Chinese Yuan','\u00a5'],
+    ['COP','Colombian Peso','$'],['CRC','Costa Rican Col\u00f3n','\u20a1'],['CUP','Cuban Peso','$'],
+    ['CVE','Cape Verdean Escudo','$'],['CZK','Czech Koruna','K\u010d'],['DJF','Djiboutian Franc','Fr'],
+    ['DKK','Danish Krone','kr'],['DOP','Dominican Peso','$'],['DZD','Algerian Dinar','\u062f\u062c'],
+    ['EGP','Egyptian Pound','\u00a3'],['ERN','Eritrean Nakfa','Nfk'],['ETB','Ethiopian Birr','Br'],
+    ['EUR','Euro','\u20ac'],['FJD','Fijian Dollar','$'],['GBP','British Pound','\u00a3'],
+    ['GEL','Georgian Lari','\u20be'],['GHS','Ghanaian Cedi','\u20b5'],['GIP','Gibraltar Pound','\u00a3'],
+    ['GMD','Gambian Dalasi','D'],['GNF','Guinean Franc','Fr'],['GTQ','Guatemalan Quetzal','Q'],
+    ['GYD','Guyanese Dollar','$'],['HKD','Hong Kong Dollar','HK$'],['HNL','Honduran Lempira','L'],
+    ['HTG','Haitian Gourde','G'],['HUF','Hungarian Forint','Ft'],['IDR','Indonesian Rupiah','Rp'],
+    ['ILS','Israeli Shekel','\u20aa'],['INR','Indian Rupee','\u20b9'],['IQD','Iraqi Dinar','\u0639.\u062f'],
+    ['IRR','Iranian Rial','\ufdfc'],['ISK','Icelandic Kr\u00f3na','kr'],['JMD','Jamaican Dollar','$'],
+    ['JOD','Jordanian Dinar','JD'],['JPY','Japanese Yen','\u00a5'],['KES','Kenyan Shilling','KSh'],
+    ['KGS','Kyrgyzstani Som','\u043b\u0432'],['KHR','Cambodian Riel','\u17db'],
+    ['KPW','North Korean Won','\u20a9'],['KRW','South Korean Won','\u20a9'],
+    ['KWD','Kuwaiti Dinar','KD'],['KYD','Cayman Islands Dollar','$'],
+    ['KZT','Kazakhstani Tenge','\u20b8'],['LAK','Laotian Kip','\u20ad'],['LBP','Lebanese Pound','\u00a3'],
+    ['LKR','Sri Lankan Rupee','\u20a8'],['LRD','Liberian Dollar','$'],['LSL','Lesotho Loti','L'],
+    ['MAD','Moroccan Dirham','MAD'],['MDL','Moldovan Leu','L'],['MGA','Malagasy Ariary','Ar'],
+    ['MKD','Macedonian Denar','\u0434\u0435\u043d'],['MNT','Mongolian T\u00f6gr\u00f6g','\u20ae'],
+    ['MOP','Macanese Pataca','P'],['MRU','Mauritanian Ouguiya','UM'],['MUR','Mauritian Rupee','\u20a8'],
+    ['MVR','Maldivian Rufiyaa','Rf'],['MWK','Malawian Kwacha','MK'],['MXN','Mexican Peso','$'],
+    ['MYR','Malaysian Ringgit','RM'],['MZN','Mozambican Metical','MT'],['NAD','Namibian Dollar','$'],
+    ['NGN','Nigerian Naira','\u20a6'],['NIO','Nicaraguan C\u00f3rdoba','C$'],['NOK','Norwegian Krone','kr'],
+    ['NPR','Nepalese Rupee','\u20a8'],['NZD','New Zealand Dollar','NZ$'],['OMR','Omani Rial','\ufdfc'],
+    ['PAB','Panamanian Balboa','B/.'],['PEN','Peruvian Sol','S/.'],['PGK','Papua New Guinean Kina','K'],
+    ['PHP','Philippine Peso','\u20b1'],['PKR','Pakistani Rupee','\u20a8'],['PLN','Polish Z\u0142oty','z\u0142'],
+    ['PYG','Paraguayan Guaran\u00ed','\u20b2'],['QAR','Qatari Riyal','\ufdfc'],['RON','Romanian Leu','lei'],
+    ['RSD','Serbian Dinar','din'],['RWF','Rwandan Franc','Fr'],['SAR','Saudi Riyal','\ufdfc'],
+    ['SBD','Solomon Islands Dollar','$'],['SCR','Seychellois Rupee','\u20a8'],['SEK','Swedish Krona','kr'],
+    ['SGD','Singapore Dollar','S$'],['SHP','Saint Helena Pound','\u00a3'],['SLL','Sierra Leonean Leone','Le'],
+    ['SRD','Surinamese Dollar','$'],['SYP','Syrian Pound','\u00a3'],['SZL','Swazi Lilangeni','L'],
+    ['THB','Thai Baht','\u0e3f'],['TJS','Tajikistani Somoni','SM'],['TMT','Turkmenistani Manat','T'],
+    ['TND','Tunisian Dinar','\u062f.\u062a'],['TOP','Tongan Pa\u02bbanga','T$'],['TRY','Turkish Lira','\u20ba'],
+    ['TTD','Trinidad & Tobago Dollar','TT$'],['TWD','New Taiwan Dollar','NT$'],
+    ['TZS','Tanzanian Shilling','Sh'],['UGX','Ugandan Shilling','Sh'],['USD','US Dollar','$'],
+    ['UYU','Uruguayan Peso','$U'],['UZS','Uzbekistani Som','\u043b\u0432'],
+    ['VES','Venezuelan Bol\u00edvar','Bs.S'],['VND','Vietnamese \u0110\u1ed3ng','\u20ab'],
+    ['VUV','Vanuatu Vatu','Vt'],['WST','Samoan T\u0101l\u0101','T'],
+    ['XAF','Central African CFA Franc','Fr'],['XCD','East Caribbean Dollar','$'],
+    ['XOF','West African CFA Franc','Fr'],['XPF','CFP Franc','Fr'],
+    ['ZAR','South African Rand','R'],['ZMW','Zambian Kwacha','ZK'],['ZWL','Zimbabwean Dollar','$']
+  ];
+
+  var CURRENCY_MAP = {};
+  CURRENCIES.forEach(function(c) { CURRENCY_MAP[c[0]] = { name: c[1], symbol: c[2] }; });
+
+  // ─────────────────────────────────────────────
+  // 초기 상태 — Liquid가 렌더한 현재 값에서 시작
+  // ─────────────────────────────────────────────
+  var selCountry  = LUMEN_CTX.shopCountry;
+  var selCurrency = LUMEN_CTX.shopCurrency;
+  var activeDrop  = null;
+
+  // ─────────────────────────────────────────────
+  // 헬퍼
+  // ─────────────────────────────────────────────
+  function countryLabel(code) {
+    for (var i = 0; i < COUNTRIES.length; i++) {
+      if (COUNTRIES[i][0] === code) return COUNTRIES[i][1];
+    }
+    return code;
+  }
+  function currencyLabel(code) {
+    var c = CURRENCY_MAP[code];
+    return c ? code + ' (' + c.symbol + ')' : code;
+  }
+
+  // ─────────────────────────────────────────────
+  // DOM refs
+  // ─────────────────────────────────────────────
+  var overlay     = document.getElementById('lumenOverlay');
+  var cntTrigger  = document.getElementById('lumenCntTrigger');
+  var cntPanel    = document.getElementById('lumenCntPanel');
+  var cntValueEl  = document.getElementById('lumenCntValue');
+  var cntListEl   = document.getElementById('lumenCntList');
+  var cntSearchEl = document.getElementById('lumenCntSearch');
+  var curTrigger  = document.getElementById('lumenCurTrigger');
+  var curPanel    = document.getElementById('lumenCurPanel');
+  var curValueEl  = document.getElementById('lumenCurValue');
+  var curListEl   = document.getElementById('lumenCurList');
+  var curSearchEl = document.getElementById('lumenCurSearch');
+  var saveBtn     = document.getElementById('lumenSave');
+  var closeBtn    = document.getElementById('lumenClose');
+  var autoBadge   = document.getElementById('lumenAutoBadge');
+
+  if (!overlay) return; // 메인 페이지가 아니면 DOM 없음 → 종료
+
+  // ─────────────────────────────────────────────
+  // 렌더
+  // ─────────────────────────────────────────────
+  function renderCountries(q) {
+    q = (q || '').trim().toLowerCase();
+    cntListEl.innerHTML = '';
+    COUNTRIES.forEach(function(pair) {
+      var code = pair[0], name = pair[1];
+      if (q && name.toLowerCase().indexOf(q) === -1 && code.toLowerCase().indexOf(q) === -1) return;
+      var el = document.createElement('div');
+      el.className = 'lumen-item' + (code === selCountry ? ' lumen-selected' : '');
+      el.textContent = name;
+      el.addEventListener('click', function() {
+        selCountry = code;
+        var suggest = COUNTRY_CURRENCY[code];
+        var changed = suggest && suggest !== selCurrency;
+        if (suggest) { selCurrency = suggest; curValueEl.textContent = currencyLabel(suggest); }
+        cntValueEl.textContent = countryLabel(code);
+        closeAll();
+        renderCurrencies('');
+        if (changed) flashCurrency();
+      });
+      cntListEl.appendChild(el);
+    });
+  }
+
+  function renderCurrencies(q) {
+    q = (q || '').trim().toLowerCase();
+    curListEl.innerHTML = '';
+    CURRENCIES.forEach(function(row) {
+      var code = row[0], sym = row[2];
+      var str = code + ' ' + sym + ' ' + row[1];
+      if (q && str.toLowerCase().indexOf(q) === -1) return;
+      var el = document.createElement('div');
+      el.className = 'lumen-item' + (code === selCurrency ? ' lumen-selected' : '');
+      el.textContent = code + ' (' + sym + ')';
+      el.addEventListener('click', function() {
+        selCurrency = code;
+        curValueEl.textContent = currencyLabel(code);
+        closeAll();
+      });
+      curListEl.appendChild(el);
+    });
+  }
+
+  function flashCurrency() {
+    var wrap = document.getElementById('lumenCurSelect');
+    wrap.classList.remove('lumen-currency-flash');
+    void wrap.offsetWidth;
+    wrap.classList.add('lumen-currency-flash');
+    if (autoBadge) autoBadge.classList.add('lumen-badge-visible');
+    setTimeout(function() {
+      wrap.classList.remove('lumen-currency-flash');
+      if (autoBadge) autoBadge.classList.remove('lumen-badge-visible');
+    }, 2200);
+  }
+
+  // ─────────────────────────────────────────────
+  // 드롭다운 제어
+  // ─────────────────────────────────────────────
+  function closeAll() {
+    activeDrop = null;
+    cntTrigger.classList.remove('lumen-open'); cntPanel.classList.remove('lumen-open');
+    curTrigger.classList.remove('lumen-open'); curPanel.classList.remove('lumen-open');
+  }
+
+  function openCountry() {
+    closeAll(); activeDrop = 'country';
+    cntTrigger.classList.add('lumen-open'); cntPanel.classList.add('lumen-open');
+    cntSearchEl.value = ''; renderCountries('');
+    setTimeout(function() {
+      var s = cntListEl.querySelector('.lumen-selected');
+      if (s) s.scrollIntoView({ block: 'nearest' });
+      cntSearchEl.focus();
+    }, 50);
+  }
+
+  function openCurrency() {
+    closeAll(); activeDrop = 'currency';
+    curTrigger.classList.add('lumen-open'); curPanel.classList.add('lumen-open');
+    curSearchEl.value = ''; renderCurrencies('');
+    setTimeout(function() {
+      var s = curListEl.querySelector('.lumen-selected');
+      if (s) s.scrollIntoView({ block: 'nearest' });
+      curSearchEl.focus();
+    }, 50);
+  }
+
+  // ─────────────────────────────────────────────
+  // 이벤트 바인딩
+  // ─────────────────────────────────────────────
+  cntTrigger.addEventListener('click', function(e) {
+    e.stopPropagation();
+    activeDrop === 'country' ? closeAll() : openCountry();
+  });
+  cntSearchEl.addEventListener('input', function() { renderCountries(cntSearchEl.value); });
+
+  curTrigger.addEventListener('click', function(e) {
+    e.stopPropagation();
+    activeDrop === 'currency' ? closeAll() : openCurrency();
+  });
+  curSearchEl.addEventListener('input', function() { renderCurrencies(curSearchEl.value); });
+
+  document.addEventListener('click', function(e) {
+    var cntWrap = document.getElementById('lumenCountrySelect');
+    var curWrap = document.getElementById('lumenCurSelect');
+    if (cntWrap && curWrap && !cntWrap.contains(e.target) && !curWrap.contains(e.target)) closeAll();
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeAll();
+  });
+
+  closeBtn.addEventListener('click', function() {
+    // 닫기 = 현재 Shopify Market 유지, 캐시 저장
+    saveCache(selCountry, selCurrency);
+    overlay.style.transition = 'opacity 0.2s ease';
+    overlay.style.opacity = '0';
+    setTimeout(function() {
+      overlay.classList.remove('lumen-visible');
+      overlay.style.opacity = '';
+      overlay.style.transition = '';
+    }, 200);
+  });
+
+  function updateFooterTrigger(countryCode) {
+    var el = document.getElementById('lumenFooterTrigger');
+    if (el && countryCode) el.textContent = countryCode;
+  }
+
+  function closeModal() {
+    overlay.style.transition = 'opacity 0.2s ease';
+    overlay.style.opacity = '0';
+    setTimeout(function() {
+      overlay.classList.remove('lumen-visible');
+      overlay.style.opacity = '';
+      overlay.style.transition = '';
+    }, 200);
+    // 모달 닫힐 때 푸터 국가코드 즉시 갱신
+    updateFooterTrigger(selCountry);
+  }
+
+  saveBtn.addEventListener('click', function() {
+    saveCache(selCountry, selCurrency);
+
+    // KR → Cafe24 (?country=KR 파라미터로 캐시 전달 — 도메인이 달라 localStorage 공유 불가)
+    if (selCountry === 'KR') {
+      window.location.href = KR_URL + '?country=KR';
+      return;
+    }
+
+    // JP → Japan Market 이동 (일본어 상품설명) + BUCKS로 JPY 표시
+    if (selCountry === 'JP') {
+      // BUCKS JPY 세팅 후 이동 (이동 후 페이지에서도 재적용됨)
+      triggerBucksCurrency('JPY');
+      window.location.href = INTL_URL + '?country=JP';
+      return;
+    }
+
+    // 그 외 → ?country= 파라미터로 이동 (Shopify Market + BUCKS 통화 동시 적용)
+    // closeModal만 하면 Shopify가 이전 country를 그대로 유지함
+    window.location.href = INTL_URL + '?country=' + selCountry;
+  });
+
+  // ─────────────────────────────────────────────
+  // 초기화 실행
+  // ─────────────────────────────────────────────
+  // BUCKS 자체 UI 숨김 (임베드 기능은 유지)
+  hideBucksUI();
+
+  var urlCountry = processUrlParam();
+
+  if (shouldShowModal(urlCountry)) {
+    // 캐시에서 마지막 선택 복원
+    var cached = loadCache();
+    if (cached && cached.countryCode && cached.countryCode !== 'KR') {
+      selCountry  = cached.countryCode;
+      selCurrency = cached.currencyCode || COUNTRY_CURRENCY[cached.countryCode] || 'USD';
+    }
+    cntValueEl.textContent = countryLabel(selCountry);
+    curValueEl.textContent = currencyLabel(selCurrency);
+    renderCountries('');
+    renderCurrencies('');
+
+    requestAnimationFrame(function() {
+      overlay.classList.add('lumen-visible');
+    });
+  }
+
+  // ─────────────────────────────────────────────
+  // 전역 함수 노출 — 헤더/푸터 버튼에서 호출
+  // ─────────────────────────────────────────────
+  window.lumenOpenSelector = function() {
+    var ov = document.getElementById('lumenOverlay');
+    if (!ov) return;
+    // 현재 캐시 기준으로 선택값 복원
+    var c = loadCache();
+    if (c && c.countryCode && c.countryCode !== 'KR') {
+      selCountry  = c.countryCode;
+      selCurrency = c.currencyCode || COUNTRY_CURRENCY[c.countryCode] || 'USD';
+    }
+    cntValueEl.textContent = countryLabel(selCountry);
+    curValueEl.textContent = currencyLabel(selCurrency);
+    renderCountries('');
+    renderCurrencies('');
+    ov.style.opacity = '';
+    ov.style.transition = '';
+    ov.classList.add('lumen-visible');
+  };
+
+}());
+</script>

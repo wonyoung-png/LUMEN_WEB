@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ATELIER DE LUMEN — Welcome Popup Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  /* Page backdrop */
+  body {
+    background: #2a2a2a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  }
+
+  /* ── Overlay ── */
+  .popup-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+
+  /* ── Popup container  920 × 647px (Cult Gaia 동일) ── */
+  .popup {
+    display: flex;
+    flex-direction: row;
+    width: 920px;
+    height: 647px;
+    background: #F6F5EE;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  }
+
+  /* ── Close button ── */
+  .popup-close {
+    position: absolute;
+    top: 14px;
+    right: 16px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 20px;
+    color: #393939;
+    z-index: 10;
+    line-height: 1;
+    padding: 4px 6px;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+  }
+  .popup-close:hover { opacity: 1; }
+
+  /* ── Left: Image section  613px (67%) ── */
+  .popup-image {
+    width: 613px;
+    min-width: 613px;
+    height: 647px;
+    overflow: hidden;
+    position: relative;
+  }
+  .popup-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 60% center;
+    display: block;
+  }
+
+  /* ── Right: Form section  307px (33%) ── */
+  .popup-form {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 44px 32px 36px 28px;
+    background: #F6F5EE;
+  }
+
+  /* Brand label */
+  .popup-brand {
+    font-family: 'Helvetica Neue', sans-serif;
+    font-size: 7.5px;
+    letter-spacing: 0.22em;
+    color: #888;
+    text-transform: uppercase;
+    margin-bottom: 22px;
+  }
+
+  /* Main heading — Cormorant Garamond, large serif like Cult Gaia */
+  .popup-heading {
+    font-family: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+    font-size: 54px;
+    font-weight: 300;
+    line-height: 0.95;
+    color: #1a1a1a;
+    text-transform: uppercase;
+    letter-spacing: -0.01em;
+    margin-bottom: 22px;
+  }
+
+  /* Sub copy */
+  .popup-subtext {
+    font-family: 'Helvetica Neue', sans-serif;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    color: #555;
+    text-transform: uppercase;
+    margin-bottom: 28px;
+    line-height: 1.8;
+  }
+
+  /* Email input */
+  .popup-input-wrap {
+    border-bottom: 0.8px solid #B8B8B8;
+    padding-bottom: 9px;
+    margin-bottom: 14px;
+  }
+  .popup-input {
+    width: 100%;
+    border: none;
+    background: transparent;
+    font-family: 'Helvetica Neue', sans-serif;
+    font-size: 10px;
+    color: #393939;
+    letter-spacing: 0.04em;
+    outline: none;
+    padding: 0 0 0 2px;
+  }
+  .popup-input::placeholder {
+    color: #aaa;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  /* CTA Button */
+  .popup-btn {
+    width: 100%;
+    background: #1a1a1a;
+    color: #F6F5EE;
+    border: none;
+    padding: 14px 20px;
+    font-family: 'Helvetica Neue', sans-serif;
+    font-size: 8.5px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    cursor: pointer;
+    margin-bottom: 18px;
+    transition: background 0.2s;
+  }
+  .popup-btn:hover { background: #333; }
+
+  /* Fine print */
+  .popup-fine {
+    font-family: 'Helvetica Neue', sans-serif;
+    font-size: 7.5px;
+    color: #aaa;
+    letter-spacing: 0.02em;
+    line-height: 1.6;
+  }
+
+  /* Skip link */
+  .popup-skip {
+    display: inline-block;
+    margin-top: 12px;
+    font-size: 7.5px;
+    color: #aaa;
+    text-decoration: underline;
+    cursor: pointer;
+    letter-spacing: 0.06em;
+    background: none;
+    border: none;
+    padding: 0;
+  }
+  .popup-skip:hover { color: #555; }
+</style>
+</head>
+<body>
+
+<div class="popup-overlay" id="overlay">
+  <div class="popup">
+
+    <!-- ✕ Close -->
+    <button class="popup-close" onclick="document.getElementById('overlay').style.display='none'">×</button>
+
+    <!-- ── LEFT: Campaign Image ── -->
+    <div class="popup-image">
+      <!-- LUMEN 메인 배너 이미지 (교체 가능) -->
+      <img
+        src="https://intl.atlm.kr/cdn/shop/files/main_banner.jpg"
+        alt="ATELIER DE LUMEN"
+      >
+    </div>
+
+    <!-- ── RIGHT: Form ── -->
+    <div class="popup-form">
+
+      <p class="popup-brand">Atelier de Lumen</p>
+
+      <h2 class="popup-heading">$10<br>Store<br>Credit</h2>
+
+      <p class="popup-subtext">
+        Enter your email to receive<br>
+        $10 off your first order
+      </p>
+
+      <div class="popup-input-wrap">
+        <input
+          class="popup-input"
+          type="email"
+          placeholder="Email address"
+        >
+      </div>
+
+      <button class="popup-btn">Claim $10 Store Credit</button>
+
+      <p class="popup-fine">
+        Applied automatically at checkout.<br>
+        Valid on first order · Sign-in required.
+      </p>
+      <button class="popup-skip">No thanks</button>
+
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

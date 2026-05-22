@@ -1,0 +1,235 @@
+{% comment %}
+  LUMEN Country Selector Modal
+  snippets/lumen-country-selector.liquid
+
+  렌더링 위치: sections/header.liquid 하단
+  {% render 'lumen-country-selector' %}
+
+  JS는 theme.liquid </body> 직전에 별도 렌더링:
+  {% render 'lumen-country-selector-js' %}
+{% endcomment %}
+
+<style>
+.lumen-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: none;
+  align-items: center; justify-content: center;
+  padding: 20px; z-index: 99999;
+}
+.lumen-overlay.lumen-visible {
+  display: flex;
+  animation: lumenFadeIn 0.22s ease forwards;
+}
+@keyframes lumenFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.lumen-modal {
+  background: #fff; border-radius: 8px;
+  padding: 24px; width: 100%; max-width: 375px;
+  display: flex; flex-direction: column; gap: 24px;
+  box-sizing: border-box;
+  transform: translateY(12px);
+  animation: lumenSlideUp 0.26s cubic-bezier(0.22,1,0.36,1) forwards;
+}
+@keyframes lumenSlideUp { to { transform: translateY(0); } }
+
+.lumen-header {
+  display: flex; align-items: flex-start;
+  justify-content: space-between; width: 100%; box-sizing: border-box;
+}
+.lumen-title {
+  padding-top: 40px;
+  font-family: 'Items', serif;
+  font-size: 16px; font-weight: 400; line-height: 1.1;
+  letter-spacing: 0.32px; text-transform: uppercase; color: #000; margin: 0;
+}
+.lumen-close {
+  width: 24px; height: 24px; flex-shrink: 0;
+  background: none; border: none; padding: 0; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0.7; transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.lumen-close:hover { opacity: 1; transform: rotate(90deg); }
+.lumen-close svg { width: 14px; height: 14px; display: block; }
+
+.lumen-selectors { display: flex; flex-direction: column; gap: 20px; width: 100%; }
+.lumen-field { display: flex; flex-direction: column; gap: 8px; width: 100%; position: relative; }
+.lumen-label {
+  font-family: 'Surt Normal', Helvetica, Arial, sans-serif;
+  font-size: 11px; font-weight: 500; line-height: 18px;
+  letter-spacing: 0.22px; color: #000; margin: 0;
+}
+
+.lumen-select { position: relative; width: 100%; box-sizing: border-box; }
+.lumen-trigger {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px; border: 1px solid #f0f0f0; border-radius: 8px;
+  cursor: pointer; background: #fff; box-sizing: border-box;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  user-select: none;
+}
+.lumen-trigger:hover { border-color: #d0d0d0; background: #f7f7f7; }
+.lumen-trigger.lumen-open { border-color: #000; box-shadow: 0 0 0 1px #000; }
+
+.lumen-value {
+  font-family: 'Surt Normal', -apple-system, sans-serif;
+  font-size: 13px; font-weight: 400; line-height: 21px; letter-spacing: 0.39px;
+  color: #000; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; max-width: calc(100% - 80px); margin: 0;
+}
+.lumen-chevron {
+  width: 12px; height: 8px; flex-shrink: 0;
+  transition: transform 0.18s ease;
+}
+.lumen-trigger.lumen-open .lumen-chevron { transform: rotate(180deg); }
+
+.lumen-panel {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+  background: #fff; border: 1px solid #000; border-radius: 8px;
+  z-index: 100; overflow: hidden; transform-origin: top;
+  transform: scaleY(0.92) translateY(-6px); opacity: 0; pointer-events: none;
+  transition: transform 0.2s cubic-bezier(0.22,1,0.36,1), opacity 0.18s ease;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.10);
+}
+.lumen-panel.lumen-open { transform: scaleY(1) translateY(0); opacity: 1; pointer-events: all; }
+
+.lumen-search {
+  padding: 10px 14px; border-bottom: 1px solid #f0f0f0;
+  position: sticky; top: 0; background: #fff; z-index: 1; box-sizing: border-box;
+}
+.lumen-search input {
+  width: 100%; border: none; outline: none;
+  font-family: 'Surt Normal', -apple-system, sans-serif;
+  font-size: 12px; letter-spacing: 0.3px;
+  color: #000; background: transparent; padding: 0; box-sizing: border-box;
+}
+.lumen-search input::placeholder { color: #828282; }
+
+.lumen-list {
+  max-height: 220px; overflow-y: auto;
+  scrollbar-width: thin; scrollbar-color: #f0f0f0 transparent;
+}
+.lumen-list::-webkit-scrollbar { width: 4px; }
+.lumen-list::-webkit-scrollbar-thumb { background: #f0f0f0; border-radius: 2px; }
+
+.lumen-item {
+  padding: 11px 16px;
+  font-family: 'Surt Normal', -apple-system, sans-serif;
+  font-size: 13px; font-weight: 400; line-height: 1.6; letter-spacing: 0.26px;
+  color: #000; cursor: pointer;
+  transition: background 0.18s ease, padding-left 0.18s ease;
+  box-sizing: border-box;
+}
+.lumen-item:hover { background: #f7f7f7; padding-left: 20px; }
+.lumen-item.lumen-selected { background: #000; color: #fff; }
+.lumen-item.lumen-selected:hover { background: #222; padding-left: 20px; }
+
+.lumen-note {
+  font-family: 'Surt Normal', Helvetica, Arial, sans-serif;
+  font-size: 10px; font-weight: 400; line-height: 14px;
+  letter-spacing: 0.2px; color: #828282; width: 100%; margin: 0;
+}
+
+.lumen-save {
+  background: #000; width: 100%; height: 54px;
+  display: flex; align-items: center; justify-content: center;
+  border: none; cursor: pointer; border-radius: 0;
+  font-family: 'Surt Normal', Helvetica, Arial, sans-serif;
+  font-size: 11px; font-weight: 500; line-height: 18px;
+  letter-spacing: 0.22px; color: #fff; text-transform: uppercase;
+  position: relative; overflow: hidden; box-sizing: border-box;
+  transition: letter-spacing 0.18s ease;
+}
+.lumen-save::before {
+  content: ''; position: absolute; inset: 0; background: #222;
+  transform: scaleX(0); transform-origin: left;
+  transition: transform 0.3s cubic-bezier(0.22,1,0.36,1);
+}
+.lumen-save:hover::before { transform: scaleX(1); }
+.lumen-save:hover { letter-spacing: 0.8px; }
+.lumen-save span { position: relative; z-index: 1; }
+.lumen-save:active { background: #111; }
+
+@keyframes lumenCurrencyFlash {
+  0%   { background: #fff; border-color: #f0f0f0; }
+  30%  { background: #f0f4ff; border-color: #96b4ff; }
+  100% { background: #fff; border-color: #f0f0f0; }
+}
+.lumen-currency-flash .lumen-trigger {
+  animation: lumenCurrencyFlash 0.6s cubic-bezier(0.22,1,0.36,1) forwards;
+}
+.lumen-auto-badge {
+  display: inline-block;
+  font-family: 'Surt Normal', Helvetica, Arial, sans-serif;
+  font-size: 9px; letter-spacing: 0.15px; color: #828282;
+  margin-left: 4px; opacity: 0;
+  transition: opacity 0.3s ease; vertical-align: middle; flex-shrink: 0;
+}
+.lumen-auto-badge.lumen-badge-visible { opacity: 1; }
+</style>
+
+<div class="lumen-overlay" id="lumenOverlay">
+  <div class="lumen-modal">
+
+    <div class="lumen-header">
+      <div style="padding-top:40px">
+        <p class="lumen-title">SELECT YOUR COUNTRY OR REGION</p>
+      </div>
+      <button class="lumen-close" id="lumenClose" aria-label="Close">
+        <svg viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <line x1="1" y1="1" x2="13" y2="13" stroke="#000" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="13" y1="1" x2="1" y2="13" stroke="#000" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="lumen-selectors">
+
+      <div class="lumen-field">
+        <p class="lumen-label">Country / Region</p>
+        <div class="lumen-select" id="lumenCountrySelect">
+          <div class="lumen-trigger" id="lumenCntTrigger">
+            <span class="lumen-value" id="lumenCntValue">{{ localization.country.name }}</span>
+            <svg class="lumen-chevron" viewBox="0 0 12 8" fill="none">
+              <path d="M1 1L6 7L11 1" stroke="#000" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div class="lumen-panel" id="lumenCntPanel">
+            <div class="lumen-search">
+              <input type="text" id="lumenCntSearch" placeholder="Search country…" autocomplete="off">
+            </div>
+            <div class="lumen-list" id="lumenCntList"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="lumen-field">
+        <p class="lumen-label">Currency</p>
+        <div class="lumen-select" id="lumenCurSelect">
+          <div class="lumen-trigger" id="lumenCurTrigger">
+            <span class="lumen-value" id="lumenCurValue">{{ localization.country.currency.iso_code }} ({{ localization.country.currency.symbol }})</span>
+            <span class="lumen-auto-badge" id="lumenAutoBadge">auto</span>
+            <svg class="lumen-chevron" viewBox="0 0 12 8" fill="none">
+              <path d="M1 1L6 7L11 1" stroke="#000" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div class="lumen-panel" id="lumenCurPanel">
+            <div class="lumen-search">
+              <input type="text" id="lumenCurSearch" placeholder="Search currency…" autocomplete="off">
+            </div>
+            <div class="lumen-list" id="lumenCurList"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <p class="lumen-note">
+      Please be advised that changing your location while shopping will remove all products from your Shopping Bag.
+    </p>
+
+    <button class="lumen-save" id="lumenSave"><span>SAVE</span></button>
+
+  </div>
+</div>
+
